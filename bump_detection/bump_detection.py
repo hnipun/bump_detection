@@ -1,9 +1,10 @@
 import math
+import sys
 import numpy as np
 
 
 class BumpDetection:
-    # Basis matrix for the wavelet transformation
+    # basis matrix for the wavelet transformation
     wavelet_basis = np.array([
         [0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767,
          0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767, 0.1767767,
@@ -134,27 +135,53 @@ class BumpDetection:
          -0.1767767, -0.1767767, -0.1767767, -0.1767767, -0.1767767, -0.1767767, -0.1767767, -0.1767767, -0.1767767,
          -0.1767767, -0.1767767, -0.1767767, -0.1767767], ])
 
-    # Return the bump value and error value
+    A = [[0.4902, -0.1373],
+         [-0.1373, 0.0784], ]
+
+    level4_index = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    level3_index = [17, 18, 19, 20, 21, 22, 23, 24]
+    columns = [0]
+
+    min_value = -sys.maxsize - 1
+
+    # return the bump value and error value
     def bump_detection(self, s: list):
-        result = []
         alpha = -10  # Lipschitz exponent
         signal = np.zeros((32, 1))  # 2D array for the input
-        A = [[0.4902, -0.1373],
-             [-0.1373, 0.0784], ]
         bump = False
 
         # Convert the input into 2D array
         for i in range(len(s)):
-            signal[i] = s[i - 1]
+            signal[i][0] = s[i - 1]
 
         #  Wavelet transformation
         transformed = self.wavelet_basis.dot(signal)
 
-        level4_index = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
-        level3_index = [17, 18, 19, 20, 21, 22, 23, 24]
-        colums = [0]
+        level_4_dwt = self._get_abs(transformed[np.ix_([0], self.level4_index)])
+        level_3_dwt = self._get_abs(transformed[np.ix_([0], self.level3_index)])
 
-    def _max_peaks(self, arrr: list) -> tuple:
+        maxima_l4_arr = self._max_peaks(level_4_dwt)
+        maxima_l4 = maxima_l4_arr[0]
+        maxima_l4_pos = maxima_l4_arr[1]
+
+        maxima_l3 = self.min_value
+        if maxima_l4 != self.min_value:
+            maxima_l3 = self._neighbor_maxima(level_3_dwt, maxima_l4_pos)
+
+        # calculate alpha
+        if maxima_l4 != self.min_value and maxima_l3 != self.min_value:
+            alpha = self.A[1][0] * (math.log(maxima_l4) / math.log(2) + math.log(maxima_l3) / math.log(2)) + self.A[1][
+                1] * 7 * (math.log(maxima_l4) / math.log(2) + math.log(maxima_l3) / math.log(2))
+
+        if alpha > -3.8:
+            bump = True
+
+        noise_level = self._mad(transformed[np.ix_([0], self.level4_index)]) / 0.6745
+
+        return bump, noise_level
+
+    @staticmethod
+    def _max_peaks(arrr: list) -> tuple:
         n = len(arrr)
         arr = []
         max_value = -math.inf
@@ -167,7 +194,7 @@ class BumpDetection:
         for i in range(n + 1):
             arr[i] = arrr[i - 1]
 
-        # Find All Peak Elements
+        # find all peak elements
         for i in range(n + 1):
             if arr[i - 1] < arr[i] and arr[i] > arr[i + 1]:
                 if arr[i] > max_value:
@@ -176,7 +203,8 @@ class BumpDetection:
 
         return max_value, max_position
 
-    def _neighbor_maxima(self, arrr: list, maxima_l4_pos: float):
+    @staticmethod
+    def _neighbor_maxima(arrr: list, maxima_l4_pos: float) -> list:
         n = len(arrr)
         arr = []
         min_pos = math.inf
@@ -189,7 +217,7 @@ class BumpDetection:
         for i in range(n + 1):
             arr[i] = arrr[i - 1]
 
-        # Find All Peak Elements
+        # find all peak elements
         for i in range(n + 1):
             if arr[i - 1] < arr[i] and arr[i] > arr[i + 1]:
                 rel_pos = abs(i / 8.0 - maxima_l4_pos)
@@ -199,29 +227,30 @@ class BumpDetection:
 
         return maxima
 
-    # Returns the absolute values of the vector
-    def _get_abs(self, arrr: list):
+    # returns the absolute values of the vector
+    @staticmethod
+    def _get_abs(arrr: list) -> list:
         n = len(arrr)
         for i in range(n):
             arrr[i] = abs(arrr[i])
 
         return arrr
 
-    # Returns the meadian absolute deviation(MAD)
-    def _mad(self, arrr: list):
+    # returns the median absolute deviation(MAD)
+    def _mad(self, arrr: list) -> float:
         n = len(arrr)
         arr = []
-        median = math.median(arrr)
+        median = self.median(arrr)
 
+        for i in range(n + 1):
+            arr[i] = abs(arrr[i] - median)
 
-    # Returns the meadian value of the given array
-    #     def median(arrr) {
-    #         Arrays.sort(arrr);
-    #         double median = 0;
-    #         if (arrr.length % 2 == 0) {
-    #             median = ((double) arrr[arrr.length / 2] + (double) arrr[arrr.length / 2 - 1]) / 2;
-    #         } else {
-    #             median = (double) arrr[arrr.length / 2];
-    #         }
-    #         return median;
-    #     }
+        return self.median(arr)
+
+    # returns the median value of the given array
+    @staticmethod
+    def median(arrr: list) -> float:
+        n = len(arrr)
+        s = sorted(arrr)
+
+        return (sum(s[n // 2 - 1:n // 2 + 1]) / 2.0, s[n // 2])[n % 2] if n else None
