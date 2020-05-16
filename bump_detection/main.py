@@ -1,3 +1,6 @@
+from .bump_detection import bump_detection
+
+
 def main():
     pass
 
